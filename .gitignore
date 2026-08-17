@@ -1,0 +1,16 @@
+.venv/
+.env
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+*.pyc
+
+data/raw/
+data/accepted/
+data/badcases/
+outputs/models/
+outputs/runs/
+outputs/logs/
+outputs/reports/
+outputs/*.json
+outputs/*.jsonl
