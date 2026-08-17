@@ -14,8 +14,22 @@
 
 ```bash
 cd /root/agent_for_business
-uv sync --extra dev --extra training
-uv run pytest -q
+
+# AutoDL 通常已经安装 Conda。如果当前 shell 中 conda 命令不可用，先执行：
+# source /root/miniconda3/etc/profile.d/conda.sh
+# 如果 Conda 安装在其他位置，请改成对应的 profile.d/conda.sh 路径。
+conda --version
+
+# 创建并进入 Python 3.12 环境
+conda create -n agent-for-business python=3.12 -y
+conda activate agent-for-business
+
+# 安装项目内置的 tau2，以及项目的开发和训练依赖
+python -m pip install --upgrade pip
+python -m pip install -e vendor/tau2-bench
+python -m pip install -e ".[dev,training]"
+
+python -m pytest -q
 ```
 
 本地测试必须先通过。当前目标是 69 个测试通过。
@@ -52,7 +66,7 @@ USER_LLM=anthropic/你的模型名
 先不要采集 300 条轨迹，先确认环境和 API 真能工作：
 
 ```bash
-uv run python -m agent_for_business.cli smoke \
+python -m agent_for_business.cli smoke \
   --task-id 0 \
   --seed 100 \
   --output-dir outputs/smoke
@@ -72,7 +86,7 @@ wc -l outputs/smoke/trajectory.jsonl
 smoke 通过后，采集官方 Retail train 中固定的 60 个 task，每题 5 条轨迹：
 
 ```bash
-uv run python -m agent_for_business.cli collect-teacher \
+python -m agent_for_business.cli collect-teacher \
   --attempts-per-task 5 \
   --max-workers 4 \
   --output-dir outputs/teacher
@@ -92,7 +106,7 @@ outputs/teacher/collection_report.json
 ## 4. 构建 SFT JSONL
 
 ```bash
-uv run python -m agent_for_business.cli build-sft \
+python -m agent_for_business.cli build-sft \
   --input outputs/teacher/accepted.jsonl \
   --output outputs/sft/accepted.jsonl
 ```
@@ -100,7 +114,7 @@ uv run python -m agent_for_business.cli build-sft \
 ## 5. 运行 Qwen3.5-2B LoRA SFT
 
 ```bash
-uv run python -m agent_for_business.cli train-sft \
+python -m agent_for_business.cli train-sft \
   --dataset outputs/sft/accepted.jsonl \
   --output-dir outputs/sft/checkpoint \
   --epochs 2
