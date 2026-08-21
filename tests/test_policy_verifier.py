@@ -152,6 +152,11 @@ def test_requires_a_new_confirmation_for_each_mutation():
         arguments={"order_id": "W793", "reason": "no longer needed"},
         call_id="call-7",
     )
+    recorder.append_tool_result(
+        call_id="call-7",
+        content={"order_id": "W793", "status": "cancelled"},
+    )
+    recorder.append_assistant("The cancellation is complete.")
     recorder.append_tool_call(
         name="modify_pending_order_address",
         arguments={"order_id": "W793", "address": "New address"},
@@ -167,6 +172,47 @@ def test_requires_a_new_confirmation_for_each_mutation():
     assert result.policy_violation is True
     assert result.first_error == "missing_confirmation"
     assert result.reward == -1.0
+
+
+def test_accepts_one_confirmation_for_multiple_mutations_in_same_turn():
+    recorder = TrajectoryRecorder(task_id="retail-009-batch", seed=42)
+    recorder.append_tool_call(
+        name="find_user_id_by_email",
+        arguments={"email": "user@example.com"},
+        call_id="auth-batch",
+    )
+    recorder.append_assistant(
+        "I will modify both orders as described. Please confirm that you want me to proceed."
+    )
+    recorder.append_user("Yes, please proceed with both modifications.")
+    recorder.append_tool_call(
+        name="modify_pending_order_items",
+        arguments={"order_id": "W793", "item_ids": ["item-1"]},
+        call_id="modify-batch-1",
+    )
+    recorder.append_tool_result(
+        call_id="modify-batch-1",
+        content={"order_id": "W793"},
+    )
+    recorder.append_tool_call(
+        name="modify_pending_order_items",
+        arguments={"order_id": "W794", "item_ids": ["item-2"]},
+        call_id="modify-batch-2",
+    )
+    recorder.append_tool_result(
+        call_id="modify-batch-2",
+        content={"order_id": "W794"},
+    )
+    trajectory = recorder.finish(
+        terminal_state={"orders_modified": ["W793", "W794"]},
+        evaluation={"task_success": True, "reward": 1.0},
+    )
+
+    result = RetailPolicyVerifier().verify(trajectory)
+
+    assert result.policy_violation is False
+    assert result.first_error is None
+    assert result.reward == 1.0
 
 
 def test_exposes_verified_terminal_components():

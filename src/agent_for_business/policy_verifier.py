@@ -54,16 +54,27 @@ class RetailPolicyVerifier:
         authenticated = False
         confirmation_received = False
         confirmation_ready = False
+        mutation_batch_active = False
         pending_tool_names = {}
         tool_error_count = 0
         first_error: Optional[str] = None
 
         for event in trajectory.events:
             if event.kind == "user_message":
+                # A new conversation turn ends any previously authorized mutation batch.
+                if mutation_batch_active:
+                    mutation_batch_active = False
+                    confirmation_received = False
+                    confirmation_ready = False
                 # 明确的 yes/confirm 是一次性的；普通对话不会消耗或刷新确认状态。
                 if self._is_explicit_confirmation(str(event.content or "")):
                     confirmation_received = True
             elif event.kind == "assistant_message":
+                # A new assistant turn starts a new authorization boundary as well.
+                if mutation_batch_active:
+                    mutation_batch_active = False
+                    confirmation_received = False
+                    confirmation_ready = False
                 # 操作摘要由 assistant 文本提供，必须先出现才允许 mutation。
                 confirmation_ready = confirmation_ready or self._has_action_summary(
                     str(event.content or "")
@@ -91,15 +102,18 @@ class RetailPolicyVerifier:
                     first_error = "authentication_failure"
                     break
                 if event.tool_name in self.MUTATING_TOOLS:
-                    if not confirmation_received:
-                        first_error = "missing_confirmation"
-                        break
-                    if not confirmation_ready:
-                        first_error = "missing_action_summary"
-                        break
-                    # 每次 mutation 消耗一次确认，下一次 mutation 必须重新确认。
-                    confirmation_received = False
-                    confirmation_ready = False
+                    if not mutation_batch_active:
+                        if not confirmation_received:
+                            first_error = "missing_confirmation"
+                            break
+                        if not confirmation_ready:
+                            first_error = "missing_action_summary"
+                            break
+                        # One confirmation authorizes the consecutive mutation calls
+                        # emitted in this same assistant turn.
+                        mutation_batch_active = True
+                        confirmation_received = False
+                        confirmation_ready = False
 
                 # 只读查询可以并行；mutation 和其它 action 仍必须串行。
                 pending_actions = [
