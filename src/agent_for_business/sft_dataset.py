@@ -47,11 +47,10 @@ class ActionOnlySFTRenderer:
                                 "type": "function",
                                 "function": {
                                     "name": event.tool_name or "",
-                                    "arguments": json.dumps(
-                                        event.arguments or {},
-                                        ensure_ascii=False,
-                                        sort_keys=True,
-                                    ),
+                                    # Qwen3.5's chat template iterates over
+                                    # arguments with ``items``; keep this as a
+                                    # mapping instead of a JSON string.
+                                    "arguments": event.arguments or {},
                                 },
                             }
                         ],
@@ -147,7 +146,6 @@ class QwenActionOnlyTokenFormatter:
         base_kwargs: Dict[str, Any] = {
             "tokenize": True,
             "return_dict": True,
-            "return_assistant_tokens_mask": True,
             "add_generation_prompt": False,
         }
         kwargs = dict(base_kwargs)

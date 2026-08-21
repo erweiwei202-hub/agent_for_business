@@ -41,6 +41,9 @@ def test_renders_observations_but_trains_only_assistant_messages():
     assert example.messages[1]["tool_calls"][0]["function"]["name"] == (
         "find_user_id_by_email"
     )
+    assert example.messages[1]["tool_calls"][0]["function"]["arguments"] == {
+        "email": "user@example.com"
+    }
 
 
 def test_rejects_trajectory_without_assistant_training_target():
@@ -99,7 +102,6 @@ def test_dataset_builder_excludes_policy_badcase_from_sft():
 def test_token_formatter_masks_non_selected_tokens():
     class FakeTokenizer:
         def apply_chat_template(self, messages, **kwargs):
-            assert kwargs["return_assistant_tokens_mask"] is True
             return {
                 "input_ids": list(range(101, 101 + len(messages))),
                 "attention_mask": [1] * len(messages),
@@ -161,6 +163,30 @@ def test_token_formatter_trains_only_selected_message_indices():
     )
 
     assert encoded["labels"] == [-100, 101, -100, -100]
+
+
+def test_token_formatter_does_not_request_unsupported_assistant_mask():
+    class QwenTemplateTokenizer:
+        def apply_chat_template(self, messages, **kwargs):
+            assert "return_assistant_tokens_mask" not in kwargs
+            return {
+                "input_ids": list(range(100, 100 + len(messages))),
+                "attention_mask": [1] * len(messages),
+            }
+
+    example = SFTExample(
+        task_id="retail-qwen-template",
+        messages=[
+            {"role": "user", "content": "first"},
+            {"role": "assistant", "content": "action"},
+        ],
+        trainable_message_indices=(1,),
+    )
+
+    QwenActionOnlyTokenFormatter().format(
+        tokenizer=QwenTemplateTokenizer(),
+        example=example,
+    )
 
 
 def test_sft_dataset_store_round_trips_examples(tmp_path):

@@ -55,7 +55,6 @@ def test_load_sft_dataset_reads_store_and_builds_action_only_labels(tmp_path):
     class FakeTokenizer:
         def apply_chat_template(self, messages, **kwargs):
             assert messages[0]["role"] == "user"
-            assert kwargs["return_assistant_tokens_mask"] is True
             return {
                 "input_ids": list(range(101, 101 + len(messages))),
                 "assistant_masks": [
