@@ -167,6 +167,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     partition = load_retail_task_partition(args.split_tasks)
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
+    runtime_store = TrajectoryStore(output_dir / "runtime.jsonl")
     collector = TeacherTrajectoryCollector(
         runner=runner,
         verifier=RetailPolicyVerifier(),
@@ -179,6 +180,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         attempts_per_task=args.attempts_per_task,
         base_seed=args.base_seed,
         max_workers=args.max_workers,
+        runtime_store=runtime_store,
     )
     report = {
         "task_count": len(partition.train),
