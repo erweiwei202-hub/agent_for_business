@@ -28,6 +28,11 @@ class RetailPolicyVerifier:
         "find_user_id_by_email",
         "find_user_id_by_name_zip",
     }
+    READ_ONLY_TOOLS: Set[str] = {
+        "get_user_details",
+        "get_order_details",
+        "get_product_details",
+    }
     MUTATING_TOOLS: Set[str] = {
         "cancel_pending_order",
         "modify_pending_order_address",
@@ -96,10 +101,15 @@ class RetailPolicyVerifier:
                     confirmation_received = False
                     confirmation_ready = False
 
-                # 非认证工具必须串行；已有 pending action 时再发 action 属于 tool loop。
-                if any(
-                    name not in self.AUTHENTICATION_TOOLS
+                # 只读查询可以并行；mutation 和其它 action 仍必须串行。
+                pending_actions = [
+                    name
                     for name in pending_tool_names.values()
+                    if name not in self.AUTHENTICATION_TOOLS
+                ]
+                if pending_actions and (
+                    event.tool_name not in self.READ_ONLY_TOOLS
+                    or any(name not in self.READ_ONLY_TOOLS for name in pending_actions)
                 ):
                     first_error = "multiple_tool_calls"
                     break
@@ -137,15 +147,26 @@ class RetailPolicyVerifier:
 
     @staticmethod
     def _is_explicit_confirmation(content: str) -> bool:
-        """识别有限白名单中的明确确认，避免把含糊回复当作授权。"""
+        """识别大小写不敏感且可带动作详情的明确确认。"""
         normalized = re.sub(r"[^a-z]+", " ", content.lower()).strip()
-        return normalized in {
+        exact_matches = {
             "yes",
             "yes please",
             "yes proceed",
             "i confirm",
             "confirmed",
         }
+        if normalized in exact_matches:
+            return True
+
+        confirmation_prefixes = ("yes ", "i confirm ", "confirmed ")
+        if not normalized.startswith(confirmation_prefixes):
+            return False
+
+        return not re.search(
+            r"\b(?:no|not|don t|do not|cancel|decline|rather|instead)\b",
+            normalized,
+        )
 
     @staticmethod
     def _has_action_summary(content: str) -> bool:

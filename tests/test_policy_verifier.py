@@ -54,6 +54,39 @@ def test_accepts_mutation_after_explicit_confirmation():
     assert result.reward == 1.0
 
 
+def test_accepts_case_insensitive_confirmation_with_action_details():
+    recorder = TrajectoryRecorder(task_id="retail-006-details", seed=30)
+    recorder.append_tool_call(
+        name="find_user_id_by_email",
+        arguments={"email": "user@example.com"},
+        call_id="auth-details",
+    )
+    recorder.append_assistant(
+        "The desk lamp exchange is ready. Please confirm that you want to proceed."
+    )
+    recorder.append_user("YeS, please proceed with the desk lamp exchange.")
+    recorder.append_tool_call(
+        name="exchange_delivered_order_items",
+        arguments={
+            "item_ids": ["lamp-old"],
+            "new_item_ids": ["lamp-new"],
+            "order_id": "W800",
+            "payment_method_id": "paypal-1",
+        },
+        call_id="exchange-details",
+    )
+    trajectory = recorder.finish(
+        terminal_state={"order_status": "exchange requested"},
+        evaluation={"task_success": True, "reward": 1.0},
+    )
+
+    result = RetailPolicyVerifier().verify(trajectory)
+
+    assert result.policy_violation is False
+    assert result.first_error is None
+    assert result.reward == 1.0
+
+
 def test_rejects_confirmation_without_action_summary():
     recorder = TrajectoryRecorder(task_id="retail-007", seed=31)
     recorder.append_tool_call(
@@ -253,7 +286,7 @@ def test_records_recoverable_tool_error_with_limited_reward_penalty():
     assert result.reward == 0.9
 
 
-def test_rejects_multiple_pending_tool_calls():
+def test_allows_multiple_pending_read_only_tool_calls():
     recorder = TrajectoryRecorder(task_id="retail-018", seed=67)
     recorder.append_tool_call(
         name="find_user_id_by_email",
@@ -281,6 +314,6 @@ def test_rejects_multiple_pending_tool_calls():
 
     result = RetailPolicyVerifier().verify(trajectory)
 
-    assert result.policy_violation is True
-    assert result.first_error == "multiple_tool_calls"
-    assert result.reward == -1.0
+    assert result.policy_violation is False
+    assert result.first_error is None
+    assert result.reward == 1.0

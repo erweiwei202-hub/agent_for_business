@@ -15,6 +15,12 @@ class TrajectoryStore:
         self._path = Path(path)
         self._lock = Lock()
 
+    def ensure_file(self) -> None:
+        """确保 JSONL 文件和父目录存在，即使当前没有任何记录。"""
+        with self._lock:
+            self._path.parent.mkdir(parents=True, exist_ok=True)
+            self._path.touch(exist_ok=True)
+
     def append(self, trajectory: Trajectory) -> None:
         """追加一条轨迹，并在首次写入时创建父目录。"""
         with self._lock:

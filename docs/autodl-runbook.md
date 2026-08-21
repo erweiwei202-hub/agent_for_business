@@ -95,13 +95,26 @@ python -m agent_for_business.cli collect-teacher \
 输出文件：
 
 ```text
+outputs/teacher/runtime.jsonl
 outputs/teacher/raw.jsonl
 outputs/teacher/accepted.jsonl
 outputs/teacher/failed.jsonl
 outputs/teacher/collection_report.json
 ```
 
-`accepted.jsonl` 才是 SFT 候选；`failed.jsonl` 用于 Badcase 分析；无效评分会被 Verifier 排除，不当成模型失败。
+`runtime.jsonl` 是 Runner 的原始轨迹和运行检查点存储，用于断点续跑，不是超时日志。
+任务开始时会写入 `evaluation.runtime_status=running`，正常完成写入 `completed`，
+异常写入 `error` 和 `evaluation.runtime_error`；每一行对应一次 `(task_id, seed)`
+状态快照。超时或其他运行失败要看该轨迹的 `evaluation` 和
+`collection_report.json` 分类。`accepted.jsonl` 才是 SFT 候选；`failed.jsonl`
+用于 Badcase 分析；无效评分会被 Verifier 排除，不当成模型失败。
+
+默认 LLM 请求超时为 60 秒，可通过以下参数调整：
+
+```bash
+--request-timeout 60
+```
+
 
 ## 4. 构建 SFT JSONL
 
