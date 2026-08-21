@@ -23,14 +23,14 @@ class RetailTaskRunner:
 
     def run(self, *, task_id: str, seed: int) -> Trajectory:
         """执行一个 task，归一化评估信息，落盘并返回完整轨迹。"""
-        simulation = self._simulation_runner(task_id, seed)
+        simulation = self._simulation_runner(task_id=task_id, seed=seed)
         info: Dict[str, Any] = getattr(simulation, "info", {}) or {}
         terminal_state = info.get("terminal_state", {})
         # 新版 simulation 把标准化 evaluation 放在 info 中；旧版则从 reward_info
         # 提取，兼容两种来源而不让后续 Verifier 感知 τ³ 版本差异。
-        evaluation = info.get("evaluation") or self._evaluation_from_simulation(
-            simulation
-        )
+        evaluation = self._evaluation_from_simulation(simulation)
+        evaluation.update(info.get("evaluation") or {})
+        evaluation = self.normalise_evaluation(evaluation)
 
         trajectory = self._adapter.from_simulation(
             simulation,
@@ -61,6 +61,14 @@ class RetailTaskRunner:
             )
 
         return evaluation
+
+    @staticmethod
+    def normalise_evaluation(evaluation: Dict[str, Any]) -> Dict[str, Any]:
+        """补齐 evaluation 合同，不覆盖 τ³ 已明确给出的字段。"""
+        normalized = dict(evaluation)
+        normalized.setdefault("reward_valid", normalized.get("reward") is not None)
+        normalized.setdefault("communication_ok", None)
+        return normalized
 
     @staticmethod
     def _is_successful_reward(reward: Any) -> bool:
