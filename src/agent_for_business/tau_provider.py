@@ -79,4 +79,10 @@ class Tau2RetailProvider:
         """延迟调用 τ³ 的单任务执行器。"""
         from tau2.runner import run_single_task
 
-        return run_single_task(config, task, seed=seed)
+        return run_single_task(
+            config,
+            task,
+            seed=seed,
+            evaluation_llm=getattr(config, "llm_agent", None),
+            evaluation_llm_args=getattr(config, "llm_args_agent", None),
+        )
