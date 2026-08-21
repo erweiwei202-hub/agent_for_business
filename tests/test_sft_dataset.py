@@ -4,6 +4,7 @@ from agent_for_business.sft_dataset import (
     ActionOnlySFTRenderer,
     QwenActionOnlyTokenFormatter,
     SFTDatasetStore,
+    SFTExample,
 )
 from agent_for_business.trajectory import TrajectoryRecorder
 
@@ -95,24 +96,29 @@ def test_dataset_builder_excludes_policy_badcase_from_sft():
     assert result.skipped_task_ids == ("retail-bad",)
 
 
-def test_token_formatter_masks_non_assistant_tokens():
+def test_token_formatter_masks_non_selected_tokens():
     class FakeTokenizer:
         def apply_chat_template(self, messages, **kwargs):
             assert kwargs["return_assistant_tokens_mask"] is True
             return {
-                "input_ids": [101, 102, 103, 104],
-                "attention_mask": [1, 1, 1, 1],
-                "assistant_masks": [0, 1, 0, 1],
+                "input_ids": list(range(101, 101 + len(messages))),
+                "attention_mask": [1] * len(messages),
+                "assistant_masks": [
+                    1 if message["role"] == "assistant" else 0
+                    for message in messages
+                ],
             }
 
-    recorder = TrajectoryRecorder(task_id="retail-mask", seed=89)
-    recorder.append_user("Check order W802.")
-    recorder.append_assistant("The order is pending.")
-    trajectory = recorder.finish(
-        terminal_state={"order_status": "pending"},
-        evaluation={"task_success": True, "reward": 1.0},
+    example = SFTExample(
+        task_id="retail-mask",
+        messages=[
+            {"role": "user", "content": "Check order W802."},
+            {"role": "assistant", "content": "First action."},
+            {"role": "tool", "content": "Observation."},
+            {"role": "assistant", "content": "Final answer."},
+        ],
+        trainable_message_indices=(1, 3),
     )
-    example = ActionOnlySFTRenderer().render(trajectory)
 
     encoded = QwenActionOnlyTokenFormatter().format(
         tokenizer=FakeTokenizer(),
@@ -120,6 +126,41 @@ def test_token_formatter_masks_non_assistant_tokens():
     )
 
     assert encoded["labels"] == [-100, 102, -100, 104]
+
+
+def test_token_formatter_trains_only_selected_message_indices():
+    class PrefixAwareTokenizer:
+        def apply_chat_template(self, messages, **kwargs):
+            # Each serialized message occupies one token, so prefix lengths
+            # identify the token span belonging to each message.
+            return {
+                "input_ids": list(range(100, 100 + len(messages))),
+                "attention_mask": [1] * len(messages),
+                # Deliberately mark every assistant token as trainable. The
+                # formatter must narrow this to trainable_message_indices.
+                "assistant_masks": [
+                    1 if message["role"] == "assistant" else 0
+                    for message in messages
+                ],
+            }
+
+    example = SFTExample(
+        task_id="retail-selected-targets",
+        messages=[
+            {"role": "user", "content": "first"},
+            {"role": "assistant", "content": "action one"},
+            {"role": "tool", "content": "observation"},
+            {"role": "assistant", "content": "action two"},
+        ],
+        trainable_message_indices=(1,),
+    )
+
+    encoded = QwenActionOnlyTokenFormatter().format(
+        tokenizer=PrefixAwareTokenizer(),
+        example=example,
+    )
+
+    assert encoded["labels"] == [-100, 101, -100, -100]
 
 
 def test_sft_dataset_store_round_trips_examples(tmp_path):

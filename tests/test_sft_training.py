@@ -57,8 +57,11 @@ def test_load_sft_dataset_reads_store_and_builds_action_only_labels(tmp_path):
             assert messages[0]["role"] == "user"
             assert kwargs["return_assistant_tokens_mask"] is True
             return {
-                "input_ids": [101, 102],
-                "assistant_masks": [0, 1],
+                "input_ids": list(range(101, 101 + len(messages))),
+                "assistant_masks": [
+                    1 if message["role"] == "assistant" else 0
+                    for message in messages
+                ],
             }
 
     records = module.load_sft_dataset(path, tokenizer=FakeTokenizer())
@@ -133,8 +136,11 @@ def test_train_sft_uses_injected_trainer_and_persists_config(tmp_path):
     class FakeTokenizer:
         def apply_chat_template(self, messages, **kwargs):
             return {
-                "input_ids": [101, 102],
-                "assistant_masks": [0, 1],
+                "input_ids": list(range(101, 101 + len(messages))),
+                "assistant_masks": [
+                    1 if message["role"] == "assistant" else 0
+                    for message in messages
+                ],
             }
 
     events = []
