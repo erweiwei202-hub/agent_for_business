@@ -3,7 +3,6 @@
 from dataclasses import asdict
 from pathlib import Path
 from typing import Dict, Optional, Union
-
 from .policy_verifier import RetailPolicyVerifier
 from .sft_dataset import ActionOnlySFTDatasetBuilder, SFTDatasetStore
 from .retail_runner import RetailTaskRunner

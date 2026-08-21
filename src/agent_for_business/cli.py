@@ -1,3 +1,6 @@
+print("__name__ =", __name__)
+print("__package__ =", __package__)
+
 """Retail Agent 实验命令行入口：环境配置、运行编排和报告落盘。"""
 
 import argparse
