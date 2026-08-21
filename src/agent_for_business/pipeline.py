@@ -70,9 +70,7 @@ def create_tau2_retail_runner(
         max_steps=max_steps,
         max_errors=max_errors,
     )
-    trajectory_store = TrajectoryStore(trajectory_path)
     return RetailTaskRunner(
         simulation_runner=provider.run,
-        trajectory_store=trajectory_store,
-        checkpoint_store=trajectory_store,
+        trajectory_store=TrajectoryStore(trajectory_path),
     )

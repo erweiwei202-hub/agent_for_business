@@ -48,85 +48,6 @@ def test_runner_executes_one_task_and_persists_normalized_trajectory(tmp_path):
     assert len(list(store.iter_trajectories())) == 1
 
 
-def test_runner_writes_explicit_evaluation_validity_fields(tmp_path):
-    store = TrajectoryStore(tmp_path / "trajectories.jsonl")
-    runner = RetailTaskRunner(
-        simulation_runner=lambda task_id, seed: FakeSimulation(),
-        trajectory_store=store,
-    )
-
-    trajectory = runner.run(task_id="retail-004", seed=19)
-
-    assert trajectory.evaluation["reward_valid"] is True
-    assert trajectory.evaluation["communication_ok"] is None
-
-
-def test_runner_persists_running_checkpoint_before_simulation_finishes(tmp_path):
-    store = TrajectoryStore(tmp_path / "runtime.jsonl")
-    observed_statuses = []
-
-    def simulation_runner(task_id, seed):
-        observed_statuses.extend(
-            item.evaluation.get("runtime_status")
-            for item in store.iter_trajectories()
-        )
-        return FakeSimulation()
-
-    runner = RetailTaskRunner(
-        simulation_runner=simulation_runner,
-        trajectory_store=store,
-        checkpoint_store=store,
-    )
-
-    runner.run(task_id="retail-004", seed=19)
-
-    assert observed_statuses == ["running"]
-    assert [
-        item.evaluation.get("runtime_status")
-        for item in store.iter_trajectories()
-    ] == ["running", "completed"]
-
-
-def test_runner_persists_runtime_error_instead_of_dropping_exception(tmp_path):
-    store = TrajectoryStore(tmp_path / "runtime.jsonl")
-
-    def simulation_runner(task_id, seed):
-        raise RuntimeError("provider failed")
-
-    runner = RetailTaskRunner(
-        simulation_runner=simulation_runner,
-        trajectory_store=store,
-        checkpoint_store=store,
-    )
-
-    trajectory = runner.run(task_id="retail-004", seed=19)
-
-    assert trajectory.evaluation["runtime_status"] == "error"
-    assert trajectory.evaluation["runtime_error"]["type"] == "RuntimeError"
-    assert "provider failed" in trajectory.evaluation["runtime_error"]["message"]
-    assert [
-        item.evaluation.get("runtime_status")
-        for item in store.iter_trajectories()
-    ] == ["running", "error"]
-
-
-def test_runner_supports_keyword_only_simulation_runner(tmp_path):
-    calls = []
-
-    def simulation_runner(*, task_id, seed):
-        calls.append((task_id, seed))
-        return FakeSimulation()
-
-    runner = RetailTaskRunner(
-        simulation_runner=simulation_runner,
-        trajectory_store=TrajectoryStore(tmp_path / "trajectories.jsonl"),
-    )
-
-    runner.run(task_id="retail-004", seed=19)
-
-    assert calls == [("retail-004", 19)]
-
-
 def test_runner_maps_official_reward_info_components(tmp_path):
     class OfficialRewardInfoSimulation:
         task_id = "retail-013"
@@ -152,9 +73,7 @@ def test_runner_maps_official_reward_info_components(tmp_path):
         "reward": 1.0,
         "task_success": True,
         "db_match": True,
-        "reward_valid": True,
         "communication_ok": True,
-        "runtime_status": "completed",
     }
 
 

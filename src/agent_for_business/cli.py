@@ -18,7 +18,7 @@ from .pipeline import (
 from .policy_verifier import RetailPolicyVerifier
 from .sft_training import SFTTrainingConfig, train_sft
 from .task_partition import load_retail_task_partition
-from .teacher_collection import CollectionSummary, TeacherTrajectoryCollector
+from .teacher_collection import TeacherTrajectoryCollector
 from .trajectory_store import TrajectoryStore
 
 
@@ -29,36 +29,15 @@ def llm_args_from_env(
     """按角色读取 API 参数，角色专属变量优先于共享 Anthropic 变量。"""
     values = environ or os.environ
     args: Dict[str, str] = {}
-    api_key = (
-        values.get(prefix + "_API_KEY")
-        or values.get("ANTHROPIC_API_KEY")
-        or values.get("OPENAI_API_KEY")
-    )
-    api_base = (
-        values.get(prefix + "_API_BASE")
-        or values.get("ANTHROPIC_BASE_URL")
-        or values.get("OPENAI_BASE_URL")
-        or values.get("OPENAI_API_BASE")
+    api_key = values.get(prefix + "_API_KEY") or values.get("ANTHROPIC_API_KEY")
+    api_base = values.get(prefix + "_API_BASE") or values.get(
+        "ANTHROPIC_BASE_URL"
     )
     if api_key:
         args["api_key"] = api_key
     if api_base:
         args["api_base"] = api_base
     return args
-
-
-def _project_env_path() -> Path:
-    """解析项目 .env，避免从其他工作目录启动时丢失凭据。"""
-    configured = os.environ.get("RETAIL_AGENT_ENV_FILE")
-    if configured:
-        return Path(configured)
-
-    cwd_env = Path(".env")
-    if cwd_env.exists():
-        return cwd_env
-
-    # cli.py 位于 <project>/src/agent_for_business/cli.py。
-    return Path(__file__).resolve().parents[2] / ".env"
 
 
 def load_project_env(
@@ -138,7 +117,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
     """解析命令并调用 pipeline；CLI 不承载模型或 τ³ 业务逻辑。"""
-    load_project_env(_project_env_path())
+    load_project_env(os.environ.get("RETAIL_AGENT_ENV_FILE", ".env"))
     args = build_parser().parse_args(argv)
     if args.command == "build-sft":
         summary = build_sft_dataset(
@@ -188,49 +167,22 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     partition = load_retail_task_partition(args.split_tasks)
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
-    runtime_store = TrajectoryStore(output_dir / "runtime.jsonl")
-    raw_store = TrajectoryStore(output_dir / "raw.jsonl")
-    accepted_store = TrajectoryStore(output_dir / "accepted.jsonl")
-    failed_store = TrajectoryStore(output_dir / "failed.jsonl")
-    runtime_store.ensure_file()
-    raw_store.ensure_file()
-    accepted_store.ensure_file()
-    failed_store.ensure_file()
-
-    def write_collection_report(summary) -> None:
-        _write_json(
-            output_dir / "collection_report.json",
-            {
-                "task_count": len(partition.train),
-                "attempts_per_task": args.attempts_per_task,
-                "trajectory_file": "runtime.jsonl",
-                "trajectory_file_role": "raw trajectory store, not timeout log",
-                "summary": asdict(summary),
-            },
-        )
-
-    # 先落盘空报告，确保中断发生在第一条任务之前也能审计进度。
-    write_collection_report(CollectionSummary())
     collector = TeacherTrajectoryCollector(
         runner=runner,
         verifier=RetailPolicyVerifier(),
-        raw_store=raw_store,
-        accepted_store=accepted_store,
-        failed_store=failed_store,
+        raw_store=TrajectoryStore(output_dir / "raw.jsonl"),
+        accepted_store=TrajectoryStore(output_dir / "accepted.jsonl"),
+        failed_store=TrajectoryStore(output_dir / "failed.jsonl"),
     )
     summary = collector.collect(
         task_ids=partition.train,
         attempts_per_task=args.attempts_per_task,
         base_seed=args.base_seed,
         max_workers=args.max_workers,
-        runtime_store=runtime_store,
-        on_progress=write_collection_report,
     )
     report = {
         "task_count": len(partition.train),
         "attempts_per_task": args.attempts_per_task,
-        "trajectory_file": "runtime.jsonl",
-        "trajectory_file_role": "raw trajectory store, not timeout log",
         "summary": asdict(summary),
     }
     _write_json(output_dir / "collection_report.json", report)
@@ -250,24 +202,17 @@ def _add_runtime_options(parser: argparse.ArgumentParser) -> None:
     )
     parser.add_argument("--agent-api-base")
     parser.add_argument("--user-api-base")
-    parser.add_argument(
-        "--request-timeout",
-        type=float,
-        default=60.0,
-        help="LLM request timeout in seconds for both agent and user calls",
-    )
     parser.add_argument("--max-steps", type=int, default=100)
     parser.add_argument("--max-errors", type=int, default=5)
 
 
-def _runtime_llm_args(args: argparse.Namespace, role: str) -> Dict[str, object]:
+def _runtime_llm_args(args: argparse.Namespace, role: str) -> Dict[str, str]:
     """合并环境变量配置与当前命令对指定角色的显式覆盖。"""
     prefix = role.upper()
     values = llm_args_from_env(prefix)
     api_base = getattr(args, role + "_api_base")
     if api_base:
         values["api_base"] = api_base
-    values["timeout"] = args.request_timeout
     return values
 
 
