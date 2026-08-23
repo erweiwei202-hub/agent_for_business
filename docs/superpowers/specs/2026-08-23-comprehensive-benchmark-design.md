@@ -13,8 +13,9 @@ the final benchmark CLI emit that report in JSON and Markdown.
 - Keep `src/agent_for_business/validation_gate.py` as the compatibility module
   for the benchmark aggregation types, but turn it into a reporting module
   rather than a gate.
-- Do not invent a weighted composite score. τ² reward, policy compliance, tool
-  reliability, and communication are reported as separate metrics.
+- Do not invent a weighted composite score. τ² reward and the GRPO-compatible
+  Verifier reward are reported as separate metrics; policy compliance and tool
+  reliability remain separate diagnostic rates.
 - Keep the official τ² run as the source of task execution and official reward.
   After the subprocess finishes, deserialize each saved `SimulationRun`, adapt
   it to the project's `Trajectory`, and run `RetailPolicyVerifier` over it.
@@ -27,13 +28,17 @@ The benchmark report will contain:
 
 - run metadata: model label, task IDs, trial count, seed, and concurrency;
 - official τ² metrics: run count, valid reward rate, success rate, average
-  reward, database-match rate, communication rate, and termination counts;
-- project Verifier metrics: policy-violation rate, tool-error rate, verifier
-  reward average, verifier reward-valid rate, first-error counts, and
-  communication/database checks when available;
+  reward, and termination counts;
+- project Verifier/GRPO metrics: the mean `VerificationResult.reward` used by
+  GRPO, policy-violation rate, tool-error rate, verifier-invalid count, and
+  first-error counts;
 - per-task rows showing trial coverage, τ² rewards, Verifier outcomes, policy
   errors, tool errors, and termination reasons;
 - explicit missing, infrastructure, and conversion-error counts.
+
+Database-match and communication rates are not promoted to headline metrics.
+They remain available in raw per-run Verifier details when supplied by the
+trajectory, but they are not duplicated in the aggregate summary.
 
 The Markdown summary will render these sections in the same order and will no
 longer contain a `passed` or `gate_decision` section.
@@ -71,6 +76,9 @@ types and will not return a GateDecision.
 
 - Missing or invalid τ² reward remains visible as `reward_valid=false` and is
   excluded from official reward averages.
+- `VerificationResult.reward` is preserved as `verifier_reward` per run and
+  aggregated as `verifier_reward_mean`; this is the reward signal used by the
+  project's GRPO path, including policy penalties and tool-error penalties.
 - Missing serialized messages or an inability to adapt a simulation produces a
   verifier-invalid row with an explicit error reason.
 - Duplicate or missing task/trial keys are preserved in the report and counted
@@ -88,4 +96,3 @@ types and will not return a GateDecision.
   and Verifier sections and no Gate decision.
 - Retain tests for checkpoint resume, output materialization, and command
   construction.
-
