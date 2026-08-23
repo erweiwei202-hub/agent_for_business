@@ -14,8 +14,9 @@ the final benchmark CLI emit that report in JSON and Markdown.
   for the benchmark aggregation types, but turn it into a reporting module
   rather than a gate.
 - Do not invent a weighted composite score. τ² reward and the GRPO-compatible
-  Verifier reward are reported as separate metrics; policy compliance and tool
-  reliability remain separate diagnostic rates.
+  Verifier reward are reported as separate metrics; policy compliance, tool
+  reliability, database matching, and communication remain separate diagnostic
+  rates.
 - Keep the official τ² run as the source of task execution and official reward.
   After the subprocess finishes, deserialize each saved `SimulationRun`, adapt
   it to the project's `Trajectory`, and run `RetailPolicyVerifier` over it.
@@ -28,17 +29,42 @@ The benchmark report will contain:
 
 - run metadata: model label, task IDs, trial count, seed, and concurrency;
 - official τ² metrics: run count, valid reward rate, success rate, average
-  reward, and termination counts;
+  reward, database-match rate, communication rate, missing-check counts, and
+  termination counts;
 - project Verifier/GRPO metrics: the mean `VerificationResult.reward` used by
-  GRPO, policy-violation rate, tool-error rate, verifier-invalid count, and
-  first-error counts;
+  GRPO, policy-violation rate, tool-error rate, database-match rate,
+  communication rate, verifier-invalid count, and first-error counts;
 - per-task rows showing trial coverage, τ² rewards, Verifier outcomes, policy
   errors, tool errors, and termination reasons;
 - explicit missing, infrastructure, and conversion-error counts.
 
-Database-match and communication rates are not promoted to headline metrics.
-They remain available in raw per-run Verifier details when supplied by the
-trajectory, but they are not duplicated in the aggregate summary.
+Database-match and communication rates are promoted to headline diagnostic
+metrics. Each rate uses only runs where that check is present in the source
+evaluation; runs where the check is `null` are reported separately as missing
+and are not silently counted as failures.
+
+The Markdown report will include an `## Metric Definitions` section after the
+aggregate results. It will explain the meaning and denominator of every metric,
+including the distinction between official τ² reward and Verifier reward:
+
+- τ² reward is read from the official `reward_info.reward`. It starts at `1.0`
+  and multiplies the enabled task reward components. For the Retail default
+  basis this is `db_reward * communicate_reward`; `db_reward` is `1.0` when
+  the predicted final agent and user database states match the gold end state,
+  otherwise `0.0`; `communicate_reward` is `1.0` only when every required
+  communication item is found in assistant messages, otherwise `0.0`.
+- `verifier_reward` is `VerificationResult.reward`, the project's GRPO reward
+  after replaying the adapted trajectory. A policy violation yields `-1.0`;
+  otherwise the τ²/evaluation reward is reduced by `0.1` per detected tool
+  error, capped at a total reduction of `0.2`.
+- Success rate is the proportion of valid τ² rewards that are at least `1.0`;
+  Verifier reward mean uses valid Verifier results only.
+- `db_match_rate` and `communication_rate` are true-check counts divided by
+  present-check counts, with `db_match_missing_count` and
+  `communication_missing_count` shown separately.
+- Policy-violation rate and tool-error rate use completed Verifier-valid rows;
+  the tool-error rate is the proportion of rows with at least one tool error,
+  not the average number of tool errors.
 
 The Markdown summary will render these sections in the same order and will no
 longer contain a `passed` or `gate_decision` section.
@@ -79,6 +105,9 @@ types and will not return a GateDecision.
 - `VerificationResult.reward` is preserved as `verifier_reward` per run and
   aggregated as `verifier_reward_mean`; this is the reward signal used by the
   project's GRPO path, including policy penalties and tool-error penalties.
+- `db_match` and `communication_ok` are preserved per run and aggregated only
+  over rows where their values are not `null`; missing-check counts are kept
+  so the Markdown denominator is auditable.
 - Missing serialized messages or an inability to adapt a simulation produces a
   verifier-invalid row with an explicit error reason.
 - Duplicate or missing task/trial keys are preserved in the report and counted
@@ -92,7 +121,7 @@ types and will not return a GateDecision.
   metrics, per-task grouping, invalid results, and error counts.
 - Add an adapter test using a serialized τ²-shaped simulation and assert that
   its tool calls and tool results reach `RetailPolicyVerifier`.
-- Add final benchmark tests proving the generated Markdown contains both τ²
-  and Verifier sections and no Gate decision.
+- Add final benchmark tests proving the generated Markdown contains τ²,
+  Verifier, and metric-definition sections and no Gate decision.
 - Retain tests for checkpoint resume, output materialization, and command
   construction.
