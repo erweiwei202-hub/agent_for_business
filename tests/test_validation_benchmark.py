@@ -36,13 +36,10 @@ def test_run_validation_benchmark_collects_seeded_results_in_json_report():
     assert calls == [("validation-1", 41), ("validation-2", 41)]
     assert report["model"] == "raw-model"
     assert report["task_ids"] == ["validation-1", "validation-2"]
-    assert report["summary"] == {
-        "task_count": 2,
-        "success_rate": 0.5,
-        "policy_violation_rate": 0.0,
-        "tool_error_rate": 0.0,
-        "valid_rate": 1.0,
-    }
+    assert report["summary"]["completed_runs"] == 2
+    assert report["summary"]["tau_reward_invalid_count"] == 2
+    assert report["summary"]["verifier_evaluated_count"] == 2
+    assert report["summary"]["verifier_reward_mean"] == 0.5
     assert report["results"][0]["task_success"] is True
     json.dumps(report)
 
@@ -95,7 +92,7 @@ def test_run_validation_benchmark_accepts_runner_instance_for_validation_only_id
     assert report["task_ids"] == ["validation-3"]
 
 
-def test_compare_raw_sft_validation_uses_same_task_ids_seed_and_returns_gate():
+def test_compare_raw_sft_validation_uses_same_task_ids_without_gate_decision():
     from agent_for_business.validation_benchmark import compare_raw_sft_validation
 
     calls = []
@@ -140,16 +137,13 @@ def test_compare_raw_sft_validation_uses_same_task_ids_seed_and_returns_gate():
     assert report["task_ids"] == list(task_ids)
     assert report["raw"]["model"] == "raw"
     assert report["sft"]["model"] == "sft"
-    assert report["summary"]["raw"]["success_rate"] == 0.5
-    assert report["summary"]["sft"]["success_rate"] == 1.0
-    assert report["gate_decision"] == {
-        "passed": True,
-        "reason": "sft_ready_for_grpo",
-    }
+    assert report["summary"]["raw"]["verifier_reward_mean"] == 0.5
+    assert report["summary"]["sft"]["verifier_reward_mean"] == 1.0
+    assert "gate_decision" not in report
     json.dumps(report)
 
 
-def test_compare_raw_sft_validation_blocks_invalid_sft_rewards():
+def test_compare_raw_sft_validation_reports_invalid_sft_rewards():
     from agent_for_business.validation_benchmark import compare_raw_sft_validation
 
     class FakeRunner:
@@ -177,7 +171,6 @@ def test_compare_raw_sft_validation_blocks_invalid_sft_rewards():
         seed=103,
     )
 
-    assert report["gate_decision"] == {
-        "passed": False,
-        "reason": "benchmark_contains_invalid_rewards",
-    }
+    assert report["sft"]["summary"]["verifier_reward_valid_count"] == 0
+    assert report["sft"]["summary"]["verifier_reward_mean"] is None
+    assert "gate_decision" not in report

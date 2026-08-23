@@ -17,7 +17,7 @@ from .sft_dataset import (
     SFTBuildResult,
     SFTExample,
 )
-from .validation_gate import BenchmarkSummary, GateDecision, SFTValidationGate
+from .validation_gate import BenchmarkRecord, BenchmarkSummary
 from .badcase import BadcaseAnalyzer, BadcaseRecord
 from .sft_training import SFTTrainingConfig, load_sft_dataset, train_sft
 from .validation_benchmark import (
@@ -30,6 +30,7 @@ from .grpo_core import (
     masked_mean,
     reference_kl,
 )
+from .grpo_training import GRPOTrainingConfig, train_grpo
 
 __all__ = [
     "Trajectory",
@@ -49,9 +50,8 @@ __all__ = [
     "SFTDatasetStore",
     "SFTBuildResult",
     "SFTExample",
+    "BenchmarkRecord",
     "BenchmarkSummary",
-    "GateDecision",
-    "SFTValidationGate",
     "BadcaseAnalyzer",
     "BadcaseRecord",
     "SFTTrainingConfig",
@@ -63,4 +63,6 @@ __all__ = [
     "masked_mean",
     "clipped_objective",
     "reference_kl",
+    "GRPOTrainingConfig",
+    "train_grpo",
 ]
