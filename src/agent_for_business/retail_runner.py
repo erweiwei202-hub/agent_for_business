@@ -28,7 +28,7 @@ class RetailTaskRunner:
         terminal_state = info.get("terminal_state", {})
         # 新版 simulation 把标准化 evaluation 放在 info 中；旧版则从 reward_info
         # 提取，兼容两种来源而不让后续 Verifier 感知 τ³ 版本差异。
-        evaluation = self._evaluation_from_simulation(simulation)
+        evaluation = self.evaluation_from_simulation(simulation)
         evaluation.update(info.get("evaluation") or {})
         evaluation = self.normalise_evaluation(evaluation)
 
@@ -41,7 +41,7 @@ class RetailTaskRunner:
         return trajectory
 
     @staticmethod
-    def _evaluation_from_simulation(simulation: Any) -> Dict[str, Any]:
+    def evaluation_from_simulation(simulation: Any) -> Dict[str, Any]:
         """从旧式 reward_info 提取项目统一的 evaluation 字段。"""
         reward_info = getattr(simulation, "reward_info", None)
         reward = getattr(reward_info, "reward", None)

@@ -21,7 +21,7 @@
 - 数据：官方 Retail train/test 划分；60 train、14 validation、30 final test，剩余 10 个 test task 保留。
 - 教师采集：每个训练任务默认 5 条原始轨迹，真实经过 τ³ User Simulator 和环境执行。
 - SFT：只使用最终成功且合规的轨迹；普通 LoRA；最多 2 个 epoch；Action-only loss。
-- SFT-to-GRPO Gate：必须比较 Raw 和 SFT 在 validation benchmark 上的效果，不能只看 training loss，也不能使用 final test 做决策。
+- SFT validation benchmark：必须比较 Raw 和 SFT 的独立指标，不能只看 training loss，也不能使用 final test 做 checkpoint 选择。
 - 主线实验：Raw、SFT、SFT+GRPO，不做 Raw 直接 GRPO 主线。
 - GRPO：自定义单卡 loop；group size 4；4 个环境 worker；inference microbatch 从 2 开始；最多 100 steps。
 - Final evaluation：30 个 final test task，每个模型每题运行 3 次。
@@ -76,6 +76,16 @@
 - src/agent_for_business/sft_training.py
   - Qwen3.5-2B Action-only LoRA 训练配置，最多 2 个 epoch。
   - 懒加载 transformers/peft/trl，支持 fake trainer 测试和配置落盘。
+- src/agent_for_business/grpo_training.py
+  - 识别完整模型与 SFT LoRA adapter。
+  - 直接加载 LoRA policy，保持 adapter 可训练，不要求 merge。
+  - 将已加载 policy 交给在线 GRPO trainer factory，并在 CLI manifest 记录模型来源。
+- src/agent_for_business/grpo_agent.py、grpo_rollout.py
+  - 本地 Qwen3.5 XML tool-call parser、token trace 和 tau2 half-duplex agent。
+  - 通过现有 tau2 Retail orchestrator 执行本地 policy rollout，并保留 invalid 结果。
+- src/agent_for_business/grpo_objective.py、grpo_online.py
+  - action-only torch logprob replay、clipped GRPO、reference KL、并行 rollout、
+    optimizer update、checkpoint/resume。
 - src/agent_for_business/validation_benchmark.py
   - 使用相同 validation task_ids/seed 运行 Raw 与 SFT 并生成 JSON-safe 报告。
 - src/agent_for_business/grpo_core.py
@@ -113,7 +123,7 @@
 - 可恢复 tool error 的有限扣分；
 - multiple pending tool calls 的策略违规检测；
 - Action-only SFT message rendering 和空 target 拒绝；
-- SFT validation gate 的空 benchmark、退化阻断和正向放行。
+- SFT validation benchmark 的 τ²、Verifier/GRPO、DB、通信和错误统计。
 - accepted-only SFT 数据构建和 JSONL round-trip；
 - Qwen assistant token mask；
 - badcase 分类和 infrastructure_invalid 隔离。
@@ -133,11 +143,12 @@
 - tests/test_badcase.py
 - tests/test_sft_training.py
 - tests/test_validation_benchmark.py
+- tests/test_eval_scripts.py
 - tests/test_grpo_core.py
 - tests/test_pipeline_entrypoints.py
 - tests/test_cli.py
 
-这些测试覆盖 task_id 级划分、Action-only SFT messages、accepted-only 数据构建、token mask、badcase 分类、SFT 入口、Raw/SFT validation benchmark、GRPO 数学核心、CLI、`.env` 配置和并行采集。当前切片已完成 RED → GREEN，完整核心测试为 69 passed。
+这些测试覆盖 task_id 级划分、Action-only SFT messages、accepted-only 数据构建、token mask、badcase 分类、SFT 入口、Raw/SFT validation benchmark、综合 final benchmark、GRPO 数学核心、Qwen action parser、tau2 rollout 契约、torch objective、在线 trainer、checkpoint/resume、CLI、`.env` 配置和并行采集。当前本地不依赖 tau2 的测试为 116 passed；真实 tau2 集成需在 AutoDL Python 3.12 验证。
 
 ## 环境注意事项
 
@@ -151,8 +162,8 @@
 1. 在 AutoDL Python 3.12 上按 `docs/autodl-runbook.md` 执行 smoke test。
 2. smoke 通过后，用 4 workers 采集 60 个训练 task 的教师轨迹。
 3. 构建 SFT JSONL，执行 2 epoch LoRA SFT。
-4. 运行真实 Raw/SFT validation benchmark 并落盘 Gate 报告。
-5. Gate 通过后实现 GRPO 在线 rollout、checkpoint 选择和最终 30-task 评估。
+4. 运行真实 Raw/SFT validation benchmark 并落盘综合报告。
+5. 根据 benchmark 报告选择 checkpoint，启动在线 GRPO rollout/update，再进行最终 30-task 评估。
 
 ## TDD 规则
 

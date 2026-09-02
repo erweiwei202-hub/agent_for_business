@@ -1,27 +1,26 @@
 ---
-title: Retail Agent SFT + GRPO Training Pipeline
+title: Retail Agent Online GRPO Training and Validation
 status: needs-triage
 labels:
   - needs-triage
 prd: D:/agent_for_business/outputs/retail-agent-grpo-prd.md
 ---
 
-# Retail Agent SFT + GRPO Training Pipeline
+# Retail Agent Online GRPO Training and Validation
 
-该需求已根据已确认的项目范围整理完成。
+当前 PRD 将已确认的 GRPO 方案发布到项目 issue tracker。
 
-目标是基于 τ³ Retail 构建完整的电商客服 Agent 后训练流水线，包含：
+核心约定：
 
-- DeepSeek Flash 教师轨迹采集；
-- τ³ 官方 evaluator 与 Retail Policy Verifier；
-- Action-only LoRA SFT；
-- 基于 validation 行为的 SFT-to-GRPO Gate；
-- 自定义单卡 GRPO；
-- Raw、SFT、SFT+GRPO 三组实验；
-- task-disjoint validation 和 final test；
-- Badcase 分类与可审计实验报告。
+- 以通过 SFT-to-GRPO Gate 的 Qwen3.5-2B Action-only LoRA checkpoint 为起点；
+- 从 60 个 train task 中采集 50 个候选 group，每组 4 条独立 rollout；
+- 任意一条 `reward_valid=false` 时丢弃整个 group；有效 reward=0 或策略违规 reward=-1 的 group 保留；
+- 对剩余 rollout batch 做两轮 minibatch 更新，不做跨 batch 长期 replay；
+- loss 为 `-J_clip + 0.001 * KL(reference, current)`，只作用于 assistant action token；
+- 使用固定的 14 个 validation task 做无梯度 checkpoint 选择；
+- final test 不参与训练、调参或 checkpoint 选择。
 
-完整 PRD 位于：
+完整 PRD：
 
 D:/agent_for_business/outputs/retail-agent-grpo-prd.md
 

@@ -1,4 +1,6 @@
 {
     "commentTranslate.source": "TranSmart",
-    "commentTranslate.multiLineMerge": true
+    "commentTranslate.multiLineMerge": true,
+    "python-envs.defaultEnvManager": "ms-python.python:conda",
+    "python-envs.defaultPackageManager": "ms-python.python:conda"
 }

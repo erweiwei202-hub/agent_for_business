@@ -17,6 +17,27 @@ def test_default_sft_config_is_action_only_lora_for_qwen():
     assert config.num_train_epochs == 2
 
 
+def test_default_sft_config_targets_qwen35_text_projection_modules():
+    module = importlib.import_module("agent_for_business.sft_training")
+
+    config = module.SFTTrainingConfig()
+
+    assert config.lora_target_modules == (
+        "q_proj",
+        "k_proj",
+        "v_proj",
+        "o_proj",
+        "gate_proj",
+        "up_proj",
+        "down_proj",
+        "in_proj_qkv",
+        "in_proj_z",
+        "in_proj_b",
+        "in_proj_a",
+        "out_proj",
+    )
+
+
 def test_config_rejects_full_parameter_finetuning():
     module = importlib.import_module("agent_for_business.sft_training")
 

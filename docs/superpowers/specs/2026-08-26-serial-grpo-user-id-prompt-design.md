@@ -2,12 +2,13 @@
 
 ## Goal
 
-Make the GRPO launcher run local-policy generation serially by default, and
+Make the GRPO launcher run local-policy generation in parallel by default, and
 give the local policy two explicit rules for handling unknown user IDs.
 
 ## Scope
 
-- Set `PARALLEL_GENERATION` to `0` in both GRPO launcher scripts.
+- Set `MAX_WORKERS` to `2` and `PARALLEL_GENERATION` to `1` in both GRPO
+  launcher scripts.
 - Keep the existing CLI `--parallel-generation` option available for explicit
   experiments; this change only changes the launcher default.
 - Add these exact rules to `LocalQwenAgent.system_prompt`:
@@ -17,11 +18,11 @@ give the local policy two explicit rules for handling unknown user IDs.
 
 ## Behavior
 
-When the launcher is used, it will not pass `--parallel-generation`. The
-trainer will therefore use its default serialized generation path and protect
-model generation with the existing lock. The prompt rules only guide the
-policy model; they do not add parser-side validation or prevent legitimate
-retries with corrected arguments.
+When the launcher is used, it will run two rollout workers and pass
+`--parallel-generation`. The trainer will therefore allow two local model
+generation calls at once. The prompt rules only guide the policy model; they do
+not add parser-side validation or prevent legitimate retries with corrected
+arguments.
 
 ## Verification
 

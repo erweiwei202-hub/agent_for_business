@@ -1,0 +1,9 @@
+{
+  "task_count": 60,
+  "attempts_per_task": 5,
+  "summary": {
+    "raw_count": 300,
+    "accepted_count": 147,
+    "failed_count": 162
+  }
+}

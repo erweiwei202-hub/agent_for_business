@@ -5,11 +5,19 @@ print("__package__ =", __package__)
 
 import argparse
 import json
+import math
 import os
+import platform
 from dataclasses import asdict
+from importlib import metadata
 from pathlib import Path
 from typing import Dict, Mapping, MutableMapping, Optional, Sequence, Union
 
+from .grpo_training import (
+    GRPOTrainingConfig,
+    resolve_grpo_model_source,
+    train_grpo,
+)
 from .pipeline import (
     build_sft_dataset,
     create_tau2_retail_runner,
@@ -73,7 +81,7 @@ def load_project_env(
 
 
 def build_parser() -> argparse.ArgumentParser:
-    """声明 smoke、教师采集、SFT 构建和 SFT 训练四类命令。"""
+    """声明 Retail smoke、数据构建、SFT 和 GRPO 训练命令。"""
     parser = argparse.ArgumentParser(description="Retail Agent experiment pipeline")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
@@ -112,6 +120,45 @@ def build_parser() -> argparse.ArgumentParser:
     train.add_argument("--epochs", type=int, default=2)
     train.add_argument("--max-length", type=int)
 
+    grpo = subparsers.add_parser(
+        "grpo", help="run online GRPO from an SFT checkpoint"
+    )
+    grpo.add_argument("--model", required=True)
+    grpo.add_argument("--output-dir", default="outputs/grpo")
+    grpo.add_argument(
+        "--split-tasks",
+        default="vendor/tau2-bench/data/tau2/domains/retail/split_tasks.json",
+    )
+    grpo.add_argument("--groups-per-batch", type=_positive_int, default=50)
+    grpo.add_argument("--group-size", type=_positive_int, default=4)
+    grpo.add_argument("--batch-epochs", type=_positive_int, default=2)
+    grpo.add_argument("--max-workers", type=_positive_int, default=4)
+    grpo.add_argument(
+        "--inference-microbatch", type=_positive_int, default=2
+    )
+    grpo.add_argument(
+        "--parallel-generation",
+        action="store_true",
+        help="allow rollout workers to generate concurrently on the policy model",
+    )
+    grpo.add_argument("--clip-ratio", type=_non_negative_float, default=0.2)
+    grpo.add_argument("--kl-beta", type=_non_negative_float, default=0.001)
+    grpo.add_argument("--seed", type=int, default=42)
+    grpo.add_argument("--max-rollout-batches", type=_positive_int, default=2)
+    grpo.add_argument(
+        "--user-llm",
+        default=os.environ.get("USER_LLM", "anthropic/deepseek-v4-flash"),
+    )
+    grpo.add_argument("--user-api-base")
+    grpo.add_argument("--learning-rate", type=_positive_float, default=1e-5)
+    grpo.add_argument("--weight-decay", type=_non_negative_float, default=0.0)
+    grpo.add_argument("--temperature", type=_non_negative_float, default=0.7)
+    grpo.add_argument("--top-p", type=_probability, default=0.95)
+    grpo.add_argument("--max-new-tokens", type=_positive_int, default=512)
+    grpo.add_argument("--device", default="auto")
+    grpo.add_argument("--checkpoint-every", type=_positive_int, default=1)
+    grpo.add_argument("--resume-from")
+
     return parser
 
 
@@ -137,6 +184,72 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         )
         result = train_sft(config)
         print(json.dumps({"status": "trained", "result": repr(result)}))
+        return 0
+    if args.command == "grpo":
+        config = GRPOTrainingConfig(
+            model_name=args.model,
+            output_dir=args.output_dir,
+            split_tasks=args.split_tasks,
+            groups_per_batch=args.groups_per_batch,
+            group_size=args.group_size,
+            batch_epochs=args.batch_epochs,
+            max_workers=args.max_workers,
+            inference_microbatch=args.inference_microbatch,
+            parallel_generation=args.parallel_generation,
+            clip_ratio=args.clip_ratio,
+            kl_beta=args.kl_beta,
+            seed=args.seed,
+            max_rollout_batches=args.max_rollout_batches,
+            user_llm=args.user_llm,
+            user_llm_args=_runtime_llm_args(args, "user"),
+            learning_rate=args.learning_rate,
+            weight_decay=args.weight_decay,
+            temperature=args.temperature,
+            top_p=args.top_p,
+            max_new_tokens=args.max_new_tokens,
+            device=args.device,
+            checkpoint_every=args.checkpoint_every,
+            resume_from=args.resume_from,
+        )
+        output_dir = Path(config.output_dir)
+        output_dir.mkdir(parents=True, exist_ok=True)
+        config_payload = asdict(config)
+        config_payload["rollout_plan"] = config.rollout_plan
+        model_source = resolve_grpo_model_source(config.model_name)
+        config_payload["model_source"] = {
+            "kind": "lora" if config.use_lora or model_source.is_lora else "full",
+            "base_model_name_or_path": model_source.base_model_name_or_path,
+            "adapter_path": model_source.adapter_path,
+        }
+        _write_json(output_dir / "grpo_training_config.json", config_payload)
+        _write_json(
+            output_dir / "grpo_run_manifest.json",
+            {
+                "command": "grpo",
+                "status": "started",
+                "runtime": _runtime_manifest(),
+                **config_payload,
+            },
+        )
+        try:
+            result = train_grpo(config)
+        except Exception as error:
+            _write_json(
+                output_dir / "grpo_failure.json",
+                {"command": "grpo", "status": "failed", "error": repr(error)},
+            )
+            raise
+        _write_json(
+            output_dir / "grpo_result.json",
+            {"command": "grpo", "status": "trained", "result": result},
+        )
+        print(
+            json.dumps(
+                {"status": "trained", "result": result},
+                ensure_ascii=False,
+                default=str,
+            )
+        )
         return 0
 
     # build-sft/train-sft 在上面提前返回；只有 smoke 和 teacher collection
@@ -208,6 +321,40 @@ def _add_runtime_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--max-errors", type=int, default=5)
 
 
+def _positive_int(value: str) -> int:
+    """Parse a strictly positive integer for resource and batch settings."""
+    parsed = int(value)
+    if parsed <= 0:
+        raise argparse.ArgumentTypeError("value must be positive")
+    return parsed
+
+
+def _non_negative_float(value: str) -> float:
+    """Parse a finite non-negative float for objective coefficients."""
+    parsed = float(value)
+    if not math.isfinite(parsed) or parsed < 0:
+        raise argparse.ArgumentTypeError(
+            "value must be finite and non-negative"
+        )
+    return parsed
+
+
+def _positive_float(value: str) -> float:
+    """Parse a strictly positive finite float."""
+    parsed = float(value)
+    if not math.isfinite(parsed) or parsed <= 0:
+        raise argparse.ArgumentTypeError("value must be finite and positive")
+    return parsed
+
+
+def _probability(value: str) -> float:
+    """Parse a probability in the open-closed unit interval."""
+    parsed = float(value)
+    if not math.isfinite(parsed) or not 0 < parsed <= 1:
+        raise argparse.ArgumentTypeError("value must be in (0, 1]")
+    return parsed
+
+
 def _runtime_llm_args(args: argparse.Namespace, role: str) -> Dict[str, str]:
     """合并环境变量配置与当前命令对指定角色的显式覆盖。"""
     prefix = role.upper()
@@ -231,9 +378,24 @@ def _write_json(path: Path, payload: object) -> None:
     """创建父目录并以 UTF-8、可读格式写出一份报告。"""
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
-        json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+        json.dumps(payload, ensure_ascii=False, indent=2, default=str) + "\n",
         encoding="utf-8",
     )
+
+
+def _runtime_manifest() -> Dict[str, object]:
+    """Return reproducibility metadata without requiring optional training deps."""
+    dependencies: Dict[str, str] = {}
+    for package in ("torch", "transformers", "trl", "tau2"):
+        try:
+            dependencies[package] = metadata.version(package)
+        except metadata.PackageNotFoundError:
+            dependencies[package] = "not-installed"
+    return {
+        "python_version": platform.python_version(),
+        "platform": platform.platform(),
+        "dependencies": dependencies,
+    }
 
 
 if __name__ == "__main__":

@@ -9,6 +9,19 @@ from .policy_verifier import RetailPolicyVerifier
 from .trajectory import Trajectory
 
 
+def _unwrap_teacher_message(content: Any) -> Any:
+    """Convert tau2's JSON message envelope to visible assistant text."""
+    if not isinstance(content, str):
+        return content
+    try:
+        decoded = json.loads(content)
+    except json.JSONDecodeError:
+        return content
+    if isinstance(decoded, dict) and isinstance(decoded.get("message"), str):
+        return decoded["message"]
+    return content
+
+
 @dataclass(frozen=True)
 class SFTExample:
     """一条聊天格式 SFT 样本及其中可计算 loss 的 message 下标。"""
@@ -78,6 +91,43 @@ class ActionOnlySFTRenderer:
             # 没有 assistant action 的样本无法产生有效 loss，必须显式拒绝。
             raise ValueError("trajectory has no assistant training target")
 
+        # Do not persist the simulator's terminal user message as model input.
+        # It occurs after the final assistant action and has no next policy
+        # response to learn.
+        leading_assistant_count = 0
+        while (
+            leading_assistant_count < len(messages)
+            and messages[leading_assistant_count].get("role") == "assistant"
+            and not messages[leading_assistant_count].get("tool_calls")
+        ):
+            leading_assistant_count += 1
+        if leading_assistant_count:
+            messages = messages[leading_assistant_count:]
+            trainable_indices = [
+                index - leading_assistant_count
+                for index in trainable_indices
+                if index >= leading_assistant_count
+            ]
+
+        last_assistant_index = max(
+            index
+            for index, message in enumerate(messages)
+            if message.get("role") == "assistant"
+        )
+        messages = messages[: last_assistant_index + 1]
+        messages = [
+            {
+                **message,
+                "content": (
+                    _unwrap_teacher_message(message.get("content"))
+                    if message.get("role") == "assistant"
+                    and not message.get("tool_calls")
+                    else message.get("content")
+                ),
+            }
+            for message in messages
+        ]
+
         return SFTExample(
             task_id=trajectory.task_id,
             messages=messages,
@@ -143,6 +193,7 @@ class QwenActionOnlyTokenFormatter:
     ) -> Dict[str, Any]:
         """应用 chat template，并只保留指定消息的 token 作为训练目标。"""
         self._validate_trainable_indices(example)
+        messages, trainable_message_indices = self._normalize_messages(example)
         base_kwargs: Dict[str, Any] = {
             "tokenize": True,
             "return_dict": True,
@@ -152,30 +203,171 @@ class QwenActionOnlyTokenFormatter:
         if max_length is not None:
             kwargs.update({"max_length": max_length, "truncation": True})
 
-        encoded = tokenizer.apply_chat_template(example.messages, **kwargs)
+        encoded = tokenizer.apply_chat_template(messages, **kwargs)
         input_ids = list(encoded["input_ids"])
-        message_end_offsets = self._message_end_offsets(
+        assistant_spans = self._assistant_message_spans(
             tokenizer=tokenizer,
-            messages=example.messages,
+            input_ids=input_ids,
+            messages=messages,
             base_kwargs=base_kwargs,
         )
 
         formatted = dict(encoded)
-        selected_indices = set(example.trainable_message_indices)
+        selected_indices = set(trainable_message_indices)
         labels = [-100] * len(input_ids)
-        message_start = 0
-        for message_index, message_end in enumerate(message_end_offsets):
-            if message_index in selected_indices:
-                # 截断只保留仍位于 input_ids 中的目标 token。
-                for token_index in range(
-                    message_start, min(message_end, len(input_ids))
-                ):
-                    labels[token_index] = input_ids[token_index]
-            message_start = message_end
+        for message_index in selected_indices:
+            span = assistant_spans.get(message_index)
+            if span is None:
+                # The selected assistant turn was truncated before its EOS.
+                # It cannot provide a complete causal-LM target.
+                continue
+            message_start, message_end = span
+            for token_index in range(message_start, message_end):
+                labels[token_index] = input_ids[token_index]
 
         # -100 是 PyTorch/Transformers 交叉熵常用的 ignore index。
         formatted["labels"] = labels
         return formatted
+
+    @classmethod
+    def _normalize_messages(
+        cls,
+        example: SFTExample,
+    ) -> Tuple[List[Dict[str, Any]], Tuple[int, ...]]:
+        """Normalize teacher messages to a final assistant training turn."""
+        drop_count = 0
+        while (
+            drop_count < len(example.messages)
+            and example.messages[drop_count].get("role") == "assistant"
+            and not example.messages[drop_count].get("tool_calls")
+        ):
+            drop_count += 1
+
+        messages = example.messages[drop_count:]
+        trainable_indices = tuple(
+            index - drop_count
+            for index in example.trainable_message_indices
+            if index >= drop_count
+        )
+        if not trainable_indices:
+            raise ValueError(
+                "SFT example has no action-only training target after normalization"
+            )
+
+        # A terminal UserSimulator stop message is an observation after the
+        # final agent action, not a target the policy should learn to continue.
+        last_assistant_index = max(
+            index
+            for index, message in enumerate(messages)
+            if message.get("role") == "assistant"
+        )
+        messages = messages[: last_assistant_index + 1]
+        normalized_messages: List[Dict[str, Any]] = []
+        for message in messages:
+            normalized = dict(message)
+            if normalized.get("role") == "assistant" and not normalized.get(
+                "tool_calls"
+            ):
+                normalized["content"] = cls._unwrap_teacher_message(
+                    normalized.get("content")
+                )
+            normalized_messages.append(normalized)
+
+        for index in trainable_indices:
+            if normalized_messages[index].get("role") != "assistant":
+                raise ValueError("normalized trainable message must have assistant role")
+
+        return normalized_messages, trainable_indices
+
+    @staticmethod
+    def _unwrap_teacher_message(content: Any) -> Any:
+        """Convert tau2's JSON message envelope to visible assistant text."""
+        return _unwrap_teacher_message(content)
+
+    @classmethod
+    def _assistant_message_spans(
+        cls,
+        *,
+        tokenizer: Any,
+        input_ids: List[int],
+        messages: List[Dict[str, Any]],
+        base_kwargs: Dict[str, Any],
+    ) -> Dict[int, Tuple[int, int]]:
+        """Find assistant spans in the final rendered sequence.
+
+        Prefix rendering is unsafe for Qwen templates because the template's
+        reasoning scaffold depends on which user message is last. The final
+        sequence is authoritative: each assistant header is paired with the
+        next EOS token in that same sequence.
+        """
+        assistant_indices = [
+            index
+            for index, message in enumerate(messages)
+            if message.get("role") == "assistant"
+        ]
+        if not assistant_indices:
+            raise ValueError("SFT example has no assistant messages")
+
+        encode = getattr(tokenizer, "encode", None)
+        if encode is None:
+            # Small dependency-free test tokenizers may only implement the
+            # formatter's original prefix API; keep that seam compatible.
+            offsets = cls._message_end_offsets(
+                tokenizer=tokenizer,
+                messages=messages,
+                base_kwargs=base_kwargs,
+            )
+            spans: Dict[int, Tuple[int, int]] = {}
+            start = 0
+            for index, end in enumerate(offsets):
+                if index in assistant_indices:
+                    spans[index] = (start, min(end, len(input_ids)))
+                start = end
+            return spans
+
+        header_ids = list(encode("<|im_start|>assistant\n", add_special_tokens=False))
+        eos_token_id = getattr(tokenizer, "eos_token_id", None)
+        if not header_ids or eos_token_id is None:
+            raise ValueError("tokenizer must expose assistant header and EOS token")
+
+        spans = {}
+        search_start = 0
+        for message_index in assistant_indices:
+            assistant_start = cls._find_subsequence(
+                input_ids,
+                header_ids,
+                start=search_start,
+            )
+            if assistant_start is None:
+                # The remainder of the conversation was truncated away.
+                break
+            eos_position = next(
+                (
+                    position
+                    for position in range(
+                        assistant_start + len(header_ids), len(input_ids)
+                    )
+                    if input_ids[position] == eos_token_id
+                ),
+                None,
+            )
+            if eos_position is None:
+                # Do not train a partial assistant response without EOS.
+                break
+            spans[message_index] = (assistant_start, eos_position + 1)
+            search_start = eos_position + 1
+        return spans
+
+    @staticmethod
+    def _find_subsequence(
+        values: List[int], needle: List[int], *, start: int
+    ) -> Optional[int]:
+        """Return the first index of ``needle`` in ``values`` after ``start``."""
+        last_start = len(values) - len(needle)
+        for index in range(start, last_start + 1):
+            if values[index : index + len(needle)] == needle:
+                return index
+        return None
 
     @staticmethod
     def _validate_trainable_indices(example: SFTExample) -> None:

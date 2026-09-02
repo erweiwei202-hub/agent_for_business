@@ -62,6 +62,25 @@ def test_rejects_trajectory_without_assistant_training_target():
         raise AssertionError("expected an empty SFT target to be rejected")
 
 
+def test_renderer_writes_clean_terminal_assistant_example():
+    recorder = TrajectoryRecorder(task_id="retail-clean-render", seed=75)
+    recorder.append_user("Please finish the order.")
+    recorder.append_assistant('{"message":"The order is complete."}')
+    recorder.append_user("Thanks for your help. ###STOP###")
+    trajectory = recorder.finish(
+        terminal_state={"order_status": "complete"},
+        evaluation={"task_success": True, "reward": 1.0},
+    )
+
+    example = ActionOnlySFTRenderer().render(trajectory)
+
+    assert example.messages == [
+        {"role": "user", "content": "Please finish the order."},
+        {"role": "assistant", "content": "The order is complete."},
+    ]
+    assert example.trainable_message_indices == (1,)
+
+
 def test_dataset_builder_excludes_policy_badcase_from_sft():
     good_recorder = TrajectoryRecorder(task_id="retail-good", seed=79)
     good_recorder.append_tool_call(
@@ -187,6 +206,167 @@ def test_token_formatter_does_not_request_unsupported_assistant_mask():
         tokenizer=QwenTemplateTokenizer(),
         example=example,
     )
+
+
+def test_token_formatter_drops_leading_assistant_greeting_for_qwen_template():
+    class UserFirstTokenizer:
+        def apply_chat_template(self, messages, **kwargs):
+            if messages[0]["role"] != "user":
+                raise ValueError("No user query found in messages")
+            return {
+                "input_ids": list(range(100, 100 + len(messages))),
+                "attention_mask": [1] * len(messages),
+            }
+
+    example = SFTExample(
+        task_id="retail-leading-greeting",
+        messages=[
+            {"role": "assistant", "content": "Hi! How can I help you today?"},
+            {"role": "user", "content": "Check my order."},
+            {"role": "assistant", "content": "I found your order."},
+        ],
+        trainable_message_indices=(0, 2),
+    )
+
+    encoded = QwenActionOnlyTokenFormatter().format(
+        tokenizer=UserFirstTokenizer(),
+        example=example,
+    )
+
+    assert encoded["labels"] == [-100, 101]
+
+
+def test_token_formatter_normalizes_terminal_user_and_teacher_message_wrapper():
+    rendered_messages = []
+
+    class NormalizingTokenizer:
+        def apply_chat_template(self, messages, **kwargs):
+            rendered_messages.append(messages)
+            return {
+                "input_ids": list(range(100, 100 + len(messages))),
+                "attention_mask": [1] * len(messages),
+            }
+
+    example = SFTExample(
+        task_id="retail-terminal-user",
+        messages=[
+            {"role": "user", "content": "Please finish the order."},
+            {"role": "assistant", "content": '{"message":"The order is complete."}'},
+            {"role": "user", "content": "Thanks. ###STOP###"},
+        ],
+        trainable_message_indices=(1,),
+    )
+
+    encoded = QwenActionOnlyTokenFormatter().format(
+        tokenizer=NormalizingTokenizer(),
+        example=example,
+    )
+
+    assert rendered_messages[0][-1] == {
+        "role": "assistant",
+        "content": "The order is complete.",
+    }
+    assert encoded["labels"] == [-100, 101]
+
+
+def test_token_formatter_keeps_assistant_labels_inside_each_eos_boundary():
+    class BoundaryAwareTokenizer:
+        eos_token_id = 2
+
+        def encode(self, text, add_special_tokens=False):
+            assert text == "<|im_start|>assistant\n"
+            assert add_special_tokens is False
+            return [20]
+
+        def apply_chat_template(self, messages, **kwargs):
+            assert kwargs["add_generation_prompt"] is False
+            # The real Qwen template adds a think scaffold when a prefix ends
+            # on an assistant message. This makes prefix lengths unsuitable
+            # as boundaries for the complete conversation.
+            ids = []
+            for index, message in enumerate(messages):
+                role = message["role"]
+                if role == "user":
+                    ids.extend([10 + index, 99, 2])
+                elif role == "assistant":
+                    header = 20
+                    ids.extend([header, header + 1, 2])
+                    if index == len(messages) - 1:
+                        ids.extend([77, 78])
+                else:
+                    raise AssertionError("unexpected role in test fixture")
+            return {"input_ids": ids}
+
+    example = SFTExample(
+        task_id="retail-eos-boundary",
+        messages=[
+            {"role": "user", "content": "First request."},
+            {"role": "assistant", "content": "First action."},
+            {"role": "user", "content": "Second request."},
+            {"role": "assistant", "content": "Final answer."},
+        ],
+        trainable_message_indices=(1, 3),
+    )
+
+    encoded = QwenActionOnlyTokenFormatter().format(
+        tokenizer=BoundaryAwareTokenizer(),
+        example=example,
+    )
+
+    assert encoded["labels"] == [
+        -100,
+        -100,
+        -100,
+        20,
+        21,
+        2,
+        -100,
+        -100,
+        -100,
+        20,
+        21,
+        2,
+        -100,
+        -100,
+    ]
+
+
+def test_token_formatter_skips_assistant_turns_truncated_before_eos():
+    class TruncatingTokenizer:
+        eos_token_id = 2
+
+        def encode(self, text, add_special_tokens=False):
+            return [20]
+
+        def apply_chat_template(self, messages, **kwargs):
+            ids = []
+            for index, message in enumerate(messages):
+                if message["role"] == "user":
+                    ids.extend([10 + index, 99, 2])
+                else:
+                    ids.extend([20, 21, 2])
+            if "max_length" in kwargs:
+                ids = ids[: kwargs["max_length"]]
+            return {"input_ids": ids}
+
+    example = SFTExample(
+        task_id="retail-truncated-target",
+        messages=[
+            {"role": "user", "content": "First request."},
+            {"role": "assistant", "content": "First action."},
+            {"role": "user", "content": "Second request."},
+            {"role": "assistant", "content": "Second action."},
+        ],
+        trainable_message_indices=(1, 3),
+    )
+
+    encoded = QwenActionOnlyTokenFormatter().format(
+        tokenizer=TruncatingTokenizer(),
+        example=example,
+        max_length=6,
+    )
+
+    assert encoded["labels"] == [-100, -100, -100, 20, 21, 2]
 
 
 def test_sft_dataset_store_round_trips_examples(tmp_path):

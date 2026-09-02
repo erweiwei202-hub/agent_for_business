@@ -1,0 +1,41 @@
+{
+  "model_name": "Qwen/Qwen3.5-2B",
+  "output_dir": "outputs/grpo-base-lora",
+  "split_tasks": "vendor/tau2-bench/data/tau2/domains/retail/split_tasks.json",
+  "groups_per_batch": 3,
+  "group_size": 4,
+  "batch_epochs": 1,
+  "max_workers": 1,
+  "inference_microbatch": 1,
+  "parallel_generation": false,
+  "clip_ratio": 0.2,
+  "kl_beta": 0.001,
+  "seed": 42,
+  "max_rollout_batches": 20,
+  "user_llm": "openai/gpt-5.6-luna",
+  "user_llm_args": {
+    "api_key": "sk-a99b9fb0fd5ae2c3f911bd687142feb884f978fd15530e5081f8fd9f1a2794e2",
+    "api_base": "https://ai-pixel.online/v1"
+  },
+  "learning_rate": 1e-05,
+  "weight_decay": 0.0,
+  "temperature": 0.7,
+  "top_p": 0.95,
+  "max_new_tokens": 256,
+  "device": "auto",
+  "checkpoint_every": 1,
+  "resume_from": null,
+  "use_lora": true,
+  "rollout_plan": {
+    "batches": 20,
+    "groups_per_batch": 3,
+    "rollouts_per_group": 4,
+    "rollouts_per_batch": 12,
+    "total_rollouts": 240
+  },
+  "model_source": {
+    "kind": "lora",
+    "base_model_name_or_path": "Qwen/Qwen3.5-2B",
+    "adapter_path": null
+  }
+}

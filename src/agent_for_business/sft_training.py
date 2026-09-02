@@ -3,7 +3,7 @@
 import json
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 from .sft_dataset import QwenActionOnlyTokenFormatter, SFTDatasetStore
 
@@ -26,6 +26,23 @@ class SFTTrainingConfig:
     lora_r: int = 8
     lora_alpha: int = 16
     lora_dropout: float = 0.05
+    lora_target_modules: Tuple[str, ...] = (
+        # Full-attention projections.
+        "q_proj",
+        "k_proj",
+        "v_proj",
+        "o_proj",
+        # MLP projections.
+        "gate_proj",
+        "up_proj",
+        "down_proj",
+        # Qwen3.5 linear-attention projections.
+        "in_proj_qkv",
+        "in_proj_z",
+        "in_proj_b",
+        "in_proj_a",
+        "out_proj",
+    )
 
     def __post_init__(self) -> None:
         # 项目主线只允许 Action-only LoRA，避免误启动全参数或全消息训练。
@@ -153,6 +170,7 @@ def _build_default_trainer(
         lora_dropout=config.lora_dropout,
         bias="none",
         task_type="CAUSAL_LM",
+        target_modules=list(config.lora_target_modules),
     )
     return SFTTrainer(
         model=model,

@@ -11,7 +11,7 @@ RETAIL_VALIDATION_IDS = (
     "93", "95", "96", "98", "99", "103", "104", "105",
     "106", "107", "109", "110", "112", "113",
 )
-# final_test 只用于最终报告，不能参与 SFT-to-GRPO Gate 的决策。
+# final_test 只用于最终报告，不能参与 SFT validation benchmark。
 RETAIL_FINAL_TEST_IDS = (
     "5", "9", "12", "17", "18", "26", "27", "32", "33", "36",
     "38", "39", "40", "42", "45", "49", "51", "53", "55", "56",
@@ -58,7 +58,7 @@ def build_task_partition(
         )
 
     # validation 从 official_train 中扣出；final_test 从 official_test 中选出，
-    # 这样训练、Gate 和最终评估天然使用不同的 task 集合。
+    # 这样训练、validation 和最终评估天然使用不同的 task 集合。
     return TaskPartition(
         train=tuple(task_id for task_id in train_ids if task_id not in validation_set),
         validation=tuple(task_id for task_id in train_ids if task_id in validation_set),

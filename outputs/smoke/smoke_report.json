@@ -1,0 +1,22 @@
+{
+  "task_id": "0",
+  "seed": 0,
+  "event_count": 18,
+  "evaluation": {
+    "reward": 1.0,
+    "task_success": true,
+    "db_match": true,
+    "reward_valid": true,
+    "communication_ok": null
+  },
+  "verification": {
+    "task_success": true,
+    "policy_violation": false,
+    "first_error": null,
+    "reward": 1.0,
+    "reward_valid": true,
+    "db_match": true,
+    "communication_ok": null,
+    "tool_error_count": 0
+  }
+}

@@ -1,0 +1,34 @@
+2026-09-02T20:48:10+08:00 phase=run_start next_batch_index=0 total_batches=20
+2026-09-02T20:48:10+08:00 phase=rollout_start batch=1 group=1 rollout=1 total_rollouts=4 task_id=0 seed=42
+2026-09-02T20:48:10+08:00 phase=rollout_start batch=1 group=1 rollout=2 total_rollouts=4 task_id=0 seed=43
+2026-09-02T20:48:10+08:00 phase=rollout_start batch=1 group=1 rollout=3 total_rollouts=4 task_id=0 seed=44
+2026-09-02T20:48:10+08:00 phase=rollout_start batch=1 group=1 rollout=4 total_rollouts=4 task_id=0 seed=45
+2026-09-02T20:52:00+08:00 phase=rollout_done batch=1 group=1 rollout=1 total_rollouts=4 task_id=0 seed=42 valid=True
+2026-09-02T20:54:09+08:00 phase=rollout_done batch=1 group=1 rollout=2 total_rollouts=4 task_id=0 seed=43 valid=True
+2026-09-02T20:54:39+08:00 phase=rollout_done batch=1 group=1 rollout=3 total_rollouts=4 task_id=0 seed=44 valid=False
+2026-09-02T20:57:16+08:00 phase=rollout_done batch=1 group=1 rollout=4 total_rollouts=4 task_id=0 seed=45 valid=True
+2026-09-02T20:57:16+08:00 phase=rollout_start batch=1 group=2 rollout=1 total_rollouts=4 task_id=1 seed=46
+2026-09-02T20:57:16+08:00 phase=rollout_start batch=1 group=2 rollout=2 total_rollouts=4 task_id=1 seed=47
+2026-09-02T20:57:16+08:00 phase=rollout_start batch=1 group=2 rollout=3 total_rollouts=4 task_id=1 seed=48
+2026-09-02T20:57:16+08:00 phase=rollout_start batch=1 group=2 rollout=4 total_rollouts=4 task_id=1 seed=49
+2026-09-02T20:58:32+08:00 phase=rollout_done batch=1 group=2 rollout=1 total_rollouts=4 task_id=1 seed=46 valid=False
+2026-09-02T20:58:37+08:00 phase=rollout_done batch=1 group=2 rollout=2 total_rollouts=4 task_id=1 seed=47 valid=False
+2026-09-02T20:58:43+08:00 phase=rollout_done batch=1 group=2 rollout=3 total_rollouts=4 task_id=1 seed=48 valid=False
+2026-09-02T20:58:48+08:00 phase=rollout_done batch=1 group=2 rollout=4 total_rollouts=4 task_id=1 seed=49 valid=False
+2026-09-02T20:58:48+08:00 phase=rollout_start batch=1 group=3 rollout=1 total_rollouts=4 task_id=2 seed=50
+2026-09-02T20:58:48+08:00 phase=rollout_start batch=1 group=3 rollout=2 total_rollouts=4 task_id=2 seed=51
+2026-09-02T20:58:48+08:00 phase=rollout_start batch=1 group=3 rollout=3 total_rollouts=4 task_id=2 seed=52
+2026-09-02T20:58:48+08:00 phase=rollout_start batch=1 group=3 rollout=4 total_rollouts=4 task_id=2 seed=53
+2026-09-02T20:58:53+08:00 phase=rollout_done batch=1 group=3 rollout=1 total_rollouts=4 task_id=2 seed=50 valid=False
+2026-09-02T20:58:58+08:00 phase=rollout_done batch=1 group=3 rollout=2 total_rollouts=4 task_id=2 seed=51 valid=False
+2026-09-02T20:59:04+08:00 phase=rollout_done batch=1 group=3 rollout=3 total_rollouts=4 task_id=2 seed=52 valid=False
+2026-09-02T21:01:04+08:00 phase=rollout_done batch=1 group=3 rollout=4 total_rollouts=4 task_id=2 seed=53 valid=False
+2026-09-02T21:10:02+08:00 phase=update batch=1 epoch=1 epochs=1 optimizer_step=1 loss=0.2618415057659149 reward_mean=-0.3333333333333333
+2026-09-02T21:10:05+08:00 phase=checkpoint step=1 path=outputs/grpo-base-lora/checkpoint-1
+2026-09-02T21:10:05+08:00 phase=rollout_start batch=2 group=1 rollout=1 total_rollouts=4 task_id=3 seed=54
+2026-09-02T21:10:05+08:00 phase=rollout_start batch=2 group=1 rollout=2 total_rollouts=4 task_id=3 seed=55
+2026-09-02T21:10:05+08:00 phase=rollout_start batch=2 group=1 rollout=3 total_rollouts=4 task_id=3 seed=56
+2026-09-02T21:10:05+08:00 phase=rollout_start batch=2 group=1 rollout=4 total_rollouts=4 task_id=3 seed=57
+2026-09-02T21:10:17+08:00 phase=rollout_done batch=2 group=1 rollout=1 total_rollouts=4 task_id=3 seed=54 valid=False
+2026-09-02T21:10:22+08:00 phase=rollout_done batch=2 group=1 rollout=2 total_rollouts=4 task_id=3 seed=55 valid=False
+2026-09-02T21:10:28+08:00 phase=rollout_done batch=2 group=1 rollout=3 total_rollouts=4 task_id=3 seed=56 valid=False

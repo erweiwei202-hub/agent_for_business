@@ -32,8 +32,8 @@ The benchmark report will contain:
   reward, database-match rate, communication rate, missing-check counts, and
   termination counts;
 - project Verifier/GRPO metrics: the mean `VerificationResult.reward` used by
-  GRPO, policy-violation rate, tool-error rate, database-match rate,
-  communication rate, verifier-invalid count, and first-error counts;
+  GRPO, policy-violation rate, tool-error rate, verifier-invalid count, and
+  first-error counts;
 - per-task rows showing trial coverage, τ² rewards, Verifier outcomes, policy
   errors, tool errors, and termination reasons;
 - explicit missing, infrastructure, and conversion-error counts.
