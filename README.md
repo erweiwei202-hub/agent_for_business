@@ -51,19 +51,65 @@ Agent 不是只生成一句回答，而是要在环境中完成完整轨迹：
 ## 整体流程
 
 ```mermaid
-flowchart LR
-    A[τ² Retail 用户模拟器与环境] --> B[Luna 教师 Agent 生成轨迹]
-    B --> C[Trajectory JSONL]
-    C --> D[Verifier 校验任务成功与策略合规]
-    D --> E[Accepted-only SFT 数据]
-    E --> F[Qwen3.5-2B Action-only LoRA SFT]
-    F --> G[SFT Policy]
-    G --> H[GRPO Rollout]
-    H --> I[工具执行与数据库状态]
-    I --> J[Verifier Reward]
-    J --> H
-    G --> K[Validation / Final Benchmark]
-    H --> K
+flowchart TB
+    subgraph ENV[一、标准化模拟业务环境]
+        T[Retail Task<br/>用户目标、初始状态、标准终局]
+        DB[模拟商品/订单/支付数据库]
+        TOOLS[Retail Tools<br/>查询、取消、退货、退款、换货]
+        USER[User Simulator<br/>根据场景和历史动态回复]
+        ORCH[τ² Orchestrator<br/>驱动用户、Agent、工具轮次]
+        T --> ORCH
+        DB --> ORCH
+        TOOLS --> ORCH
+        USER --> ORCH
+    end
+
+    subgraph TEACHER[二、教师轨迹采集]
+        LUNA[Luna Teacher Agent<br/>生成回复和工具调用]
+        TRAJ[完整 Trajectory<br/>消息、工具调用、工具结果、终局状态]
+        LUNA --> ORCH
+        ORCH --> TRAJ
+    end
+
+    subgraph FILTER[三、Verifier 筛选训练数据]
+        TAU_EVAL[τ² Evaluator<br/>检查数据库终局和任务要求]
+        POLICY[Business Verifier<br/>认证、操作摘要、用户确认、工具顺序]
+        SFT_DATA[Accepted-only<br/>Action-only SFT JSONL]
+        TRAJ --> TAU_EVAL
+        TRAJ --> POLICY
+        TAU_EVAL --> SFT_DATA
+        POLICY --> SFT_DATA
+    end
+
+    subgraph SFT[四、监督微调]
+        BASE[Qwen3.5-2B Base]
+        SFT_MODEL[SFT LoRA Policy]
+        BASE --> SFT_MODEL
+        SFT_DATA --> SFT_MODEL
+    end
+
+    subgraph GRPO[五、在线 GRPO 闭环]
+        POLICY_MODEL[当前 Policy<br/>SFT LoRA 或 Base LoRA]
+        ROLLOUT[Local Qwen Agent<br/>采样多个 rollout]
+        REWARD[Verifier Reward<br/>任务结果 + 合规性惩罚]
+        UPDATE[GRPO Update<br/>group advantage、clipped objective、reference KL]
+        POLICY_MODEL --> ROLLOUT
+        ROLLOUT --> ORCH
+        ORCH --> REWARD
+        REWARD --> UPDATE
+        UPDATE --> POLICY_MODEL
+    end
+
+    SFT_MODEL --> POLICY_MODEL
+
+    subgraph EVAL[六、独立评测]
+        BENCH[Raw / SFT / GRPO<br/>固定 task、seed、trial]
+        METRICS[Task Success Rate、Verifier Reward<br/>DB Match、策略违规、工具错误、终止原因]
+        BASE --> BENCH
+        SFT_MODEL --> BENCH
+        POLICY_MODEL --> BENCH
+        BENCH --> METRICS
+    end
 ```
 
 ## 数据处理
